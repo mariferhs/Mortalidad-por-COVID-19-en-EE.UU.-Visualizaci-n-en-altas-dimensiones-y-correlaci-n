@@ -1,4 +1,8 @@
 # Dashboard COVID-19 · PCA · LLE · Correlación
+*#Reyna Alvarez Brandon Yire
+
+*#Hernandez Sosol Maria Fernanda
+
 
 Tres piezas:
 
@@ -47,7 +51,7 @@ python preprocesar.py      # genera salida/condados_features.csv, pca_varianza.c
 streamlit run dashboard.py # abre el dashboard en el navegador
 ```
 
-## Notas metodológicas (para tu reporte)
+## Notas metodológicas
 
 - **PCA** se hace sobre la **tasa de mortalidad por 100k estandarizada** (no sobre
   muertes acumuladas crudas). Con datos crudos, PC1 explica >95% por puro tamaño y
@@ -61,8 +65,3 @@ streamlit run dashboard.py # abre el dashboard en el navegador
   Spearman es el contraste robusto ante la fuerte asimetría y los outliers típicos
   de muertes por COVID.
 
-## Para cambiar parámetros
-
-Todo está en el bloque `CONFIGURACION` arriba de `preprocesar.py`:
-rutas, nombres de columnas, unidad del área, número de componentes y los `k` de LLE.
-Tras cambiarlos, vuelve a correr `python preprocesar.py`.
