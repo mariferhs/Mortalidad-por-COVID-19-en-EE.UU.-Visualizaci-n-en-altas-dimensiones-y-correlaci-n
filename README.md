@@ -1,5 +1,6 @@
 # Dashboard COVID-19 · PCA · LLE · Correlación
 *#Reyna Alvarez Brandon Yire
+
 *#Hernandez Sosol Maria Fernanda
 
 
