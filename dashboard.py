@@ -499,6 +499,44 @@ with tab_pca:
         fig,
         use_container_width=True
     )
+    st.subheader("¿Qué momento del tiempo resume cada componente?")
+    load_t = loadings.copy()
+    load_t["Fecha"] = pd.to_datetime(load_t["Variable"], format="%m/%d/%y", errors="coerce")
+    pcs_load = [c for c in loadings.columns if c.startswith("PC")]
+    pc_load = st.selectbox("Componente a inspeccionar", pcs_load, key="pc_load")
+    fig = px.line(load_t.sort_values("Fecha"), x="Fecha", y=pc_load,
+                  title=f"Peso (loading) de {pc_load} a lo largo del tiempo")
+    fig.add_hline(y=0, line_dash="dot")
+    st.plotly_chart(fig, use_container_width=True)
+    f_pico = load_t.loc[load_t[pc_load].abs().idxmax(), "Fecha"]
+    st.caption(f"{pc_load} concentra su mayor peso hacia {f_pico:%b %Y}: ese es el periodo "
+               f"que esta componente resume. PC1 pesa en fechas tardías (nivel acumulado); "
+               f"las siguientes marcan el momento de las olas.")
+    st.subheader("¿Qué representa cada componente?")
+    pcs_disp = [c for c in df.columns if re.fullmatch(r"PC\d+", c)]
+    filas = [{
+        "Componente": pc,
+        "Tasa_Final": df[pc].corr(df["Tasa_Final"]),
+        "Latitud":    df[pc].corr(df["Latitud"]),
+        "Longitud":   df[pc].corr(df["Longitud"]),
+        "Poblacion":  df[pc].corr(df["Poblacion"]),
+    } for pc in pcs_disp]
+    st.dataframe(pd.DataFrame(filas).set_index("Componente").round(3),
+                 use_container_width=True)
+    st.caption("Correlación alta con Tasa_Final → la componente resume la magnitud de la "
+               "mortalidad. Correlación con Latitud/Longitud → estructura geográfica.")
+    st.subheader("Perfil regional de una componente")
+    pc_reg = st.selectbox("Componente", pcs_disp,
+                          index=1 if len(pcs_disp) > 1 else 0, key="pc_reg")
+    medias = df.groupby("Estado")[pc_reg].mean().sort_values().reset_index()
+    fig = px.bar(medias, x=pc_reg, y="Estado", orientation="h",
+                 color=pc_reg, color_continuous_scale="RdBu",
+                 title=f"Score medio de {pc_reg} por estado")
+    fig.update_layout(height=900)
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("Los estados en los extremos opuestos son los que la componente más contrasta. "
+               "En PC2 verás arriba Nueva Jersey, Nueva York, Massachusetts (Noreste, primera "
+               "ola) y abajo las Dakotas y Kansas (Grandes Llanuras, ola de otoño-invierno).")
 
 # =========================================================
 # TAB LLE
