@@ -1,67 +1,118 @@
-# Dashboard COVID-19 · PCA · LLE · Correlación
-*#Reyna Alvarez Brandon Yire
+# Dashboard COVID-19: Análisis Exploratorio y métodos de visualización en altas dimensiones y correlación
 
-*#Hernandez Sosol Maria Fernanda
+## Autores
 
+- Reyna Alvarez Brandon Yire
+- Hernández Sosol María Fernanda
 
-Tres piezas:
+## Descripción
 
-| Archivo | Qué hace |
-|---|---|
-| `preprocesar.py` | Limpia, calcula PCA + LLE + correlaciones y guarda CSVs en `salida/`. Se corre **una vez**. |
-| `dashboard.py` | App de Streamlit que lee esos CSVs y los muestra interactivos. |
-| `requirements.txt` | Dependencias. |
+Este proyecto desarrolla un dashboard interactivo en **Streamlit** para analizar la evolución de la mortalidad por COVID-19 en Estados Unidos mediante técnicas de análisis exploratorio de datos y reducción de dimensionalidad.
 
-## 1. Instalar
+El sistema permite visualizar información por estados y condados utilizando:
+
+- Mapas interactivos
+- Series de tiempo
+- Rankings
+- Análisis Exploratorio de Datos (EDA)
+- Análisis de Componentes Principales (PCA)
+- Locally Linear Embedding (LLE)
+- Análisis de correlaciones
+
+El preprocesamiento de los datos se realiza una sola vez mediante un script independiente, mientras que el dashboard únicamente consume los archivos generados para mejorar el rendimiento.
+
+---
+
+## Estructura del proyecto
+
+```text
+Proyecto/
+│
+├── dashboard.py
+├── preprocesar.py
+├── requirements.txt
+├── time_series_covid_19_deaths_US.csv
+└── salida/
+    ├── condados_features.csv
+    ├── pca_varianza.csv
+    ├── pca_loadings.csv
+    └── correlaciones.csv
+
+```
+
+---
+
+## Archivos principales
+
+| Archivo | Descripción |
+|----------|-------------|
+| `preprocesar.py` | Limpia los datos, calcula las variables derivadas, ejecuta PCA, LLE y correlaciones, y guarda los resultados en la carpeta `salida`. |
+| `dashboard.py` | Dashboard interactivo desarrollado con Streamlit. |
+| `requirements.txt` | Lista de dependencias necesarias para ejecutar el proyecto. |
+
+---
+
+## Instalación
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 2. Preparar archivos de entrada
+---
 
-En la misma carpeta necesitas:
+## Archivos de entrada
 
-1. **`time_series_covid_19_deaths_US.csv`** — el dataset ORIGINAL en formato ancho
-   (el mismo que limpiaste; no la versión larga/Looker). El script reaplica tu
-   misma limpieza para reconstruir la matriz `condado × 494 fechas`.
+El proyecto requiere los siguientes archivos:
 
-2. **`areas_condados.csv`** — tu archivo de áreas. Solo necesita dos columnas:
+### 1. Dataset COVID-19
 
-   ```
-   FIPS,Area
-   1001,1539.6
-   1003,4117.5
-   ...
-   ```
+`time_series_covid_19_deaths_US.csv`
 
-   - `FIPS` = código FIPS del condado (sirve para el cruce; maneja `1001` o `01001`).
-   - `Area` = área del condado. Si está en **millas²** pon `AREA_EN_KM2 = False`
-     arriba en `preprocesar.py` y se convierte sola a km².
-   - Si tus columnas se llaman distinto, ajusta `COL_FIPS_AREAS` y `COL_AREA`.
-   - Acepta `.csv` o `.xlsx`.
+Corresponde al dataset original de series de tiempo en formato ancho.
 
-   > La densidad sale de `Población / Área` (hab/km²). Sin este archivo, todo lo
-   > demás funciona, pero las correlaciones con densidad quedan vacías.
+## Ejecución
 
-## 3. Correr
+### 1. Generar los archivos procesados
 
 ```bash
-python preprocesar.py      # genera salida/condados_features.csv, pca_varianza.csv, correlaciones.csv
-streamlit run dashboard.py # abre el dashboard en el navegador
+python preprocesar.py
 ```
 
-## Notas metodológicas
+### 2. Ejecutar el dashboard
 
-- **PCA** se hace sobre la **tasa de mortalidad por 100k estandarizada** (no sobre
-  muertes acumuladas crudas). Con datos crudos, PC1 explica >95% por puro tamaño y
-  no hay historia; con la tasa normalizada aparecen ~5 componentes para 90%, que es
-  justo el diagnóstico que te llevó a LLE.
-- **LLE** se precalcula para varios `n_neighbors` (`KS_LLE` en el script). El
-  dashboard te deja cambiar `k` con un slider para ver qué tan estable es la
-  estructura local.
-- **Correlaciones** se calculan sobre **un renglón por condado** (la tasa acumulada
-  final vs latitud, densidad, población, longitud). Pearson mide relación lineal;
-  Spearman es el contraste robusto ante la fuerte asimetría y los outliers típicos
-  de muertes por COVID.
+```bash
+streamlit run dashboard.py
+```
+
+---
+
+## Funcionalidades
+
+- Visualización de series de tiempo.
+- Mapas interactivos.
+- Rankings de estados.
+- Análisis Exploratorio de Datos (EDA).
+- Análisis de Componentes Principales (PCA).
+- Locally Linear Embedding (LLE).
+- Análisis de correlaciones.
+
+---
+
+## Tecnologías utilizadas
+
+- Python
+- Streamlit
+- Pandas
+- NumPy
+- Plotly
+- Scikit-learn
+- Statsmodels
+- OpenPyXL
+
+---
+
+## Fuente de datos
+
+Johns Hopkins University COVID-19 Data Repository.
+
 
