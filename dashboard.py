@@ -191,17 +191,17 @@ tab_estadisticas,\
 tab_dist,\
 tab_rank,\
 tab_e_t,\
+tab_corr,\
 tab_pca,\
-tab_lle,\
-tab_corr = st.tabs(
+tab_lle = st.tabs(
 [
     "📈 Estadísticas",
     "📉 Distribución",
     "🏆 Rankings",
     "🗺️ Espacio-Temporal",
+    "🔗 Correlaciones",
     "📉 PCA",
-    "🌀 LLE",
-    "🔗 Correlaciones"
+    "🌀 LLE"
 ]
 )
 #====================================================
