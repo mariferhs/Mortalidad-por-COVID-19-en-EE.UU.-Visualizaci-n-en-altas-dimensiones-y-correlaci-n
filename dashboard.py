@@ -30,7 +30,7 @@ except Exception:
 CARPETA_SALIDA = "salida"
 
 st.set_page_config(
-    page_title="Análisis de la mortalidad por COVID-19 en EE.UU.",
+    page_title="Análisis de fallecidos por COVID-19 en EE.UU.",
     layout="wide",
     page_icon="🦠"
 )
@@ -83,7 +83,7 @@ ks_lle = sorted({
 #====================================================
 # TITULO
 #====================================================
-st.title("🦠Análisis de la mortalidad por COVID-19 en EE.UU.🦠")
+st.title("🦠Análisis de fallecidos por COVID-19 en EE.UU.🦠")
 # Periodo del conjunto de datos
 primera_fecha = columnas_fecha[0]
 ultima_fecha = columnas_fecha[-1]
@@ -122,9 +122,12 @@ c5.metric(
     help="Muertes acumuladas por COVID-19 por cada 100,000 habitantes durante el periodo del estudio"
 )
 st.subheader("Vista previa del conjunto de datos")
-columnas = feat.loc[:, :"Tasa_Final"].columns
+columnas = covid.columns[
+    covid.columns.get_loc("Admin2"):
+    covid.columns.get_loc("1/22/20") + 1
+]
 st.dataframe(
-    feat[columnas].head(),
+    covid[columnas].head(),
     use_container_width=True
 )
 #====================================================
@@ -316,33 +319,53 @@ with tab_dist:
 with tab_rank:
     col1, col2 = st.columns(2)
     #====================================================
-    # TOP 10 TASA PROMEDIO DE MORTALIDAD
+    # TOP 10 ESTADOS CON MAYOR TASA DE MORTALIDAD
     #====================================================
     with col1:
-        st.subheader("Top 10 estados con mayor tasa promedio de mortalidad")
+
+        st.subheader("Top 10 estados con mayor tasa de mortalidad")
+
+        # Agrupar por estado
         datos_tasa = (
-            feat
-            .groupby("Estado")["Tasa_Final"]
-            .mean()
-            .sort_values(ascending=False)
-            .head(10)
+            covid
+            .groupby("Province_State")
+            .agg({
+                ultima_fecha: "sum",
+                "Population": "sum"
+            })
             .reset_index()
         )
+
+        # Calcular tasa por cada 100 000 habitantes
+        datos_tasa["Tasa_Mortalidad"] = (
+            datos_tasa[ultima_fecha]
+            / datos_tasa["Population"]
+        ) * 100000
+
+        # Ordenar y seleccionar los 10 estados con mayor tasa
+        datos_tasa = (
+            datos_tasa
+            .sort_values("Tasa_Mortalidad", ascending=False)
+            .head(10)
+        )
+
         fig = px.bar(
             datos_tasa,
-            x="Tasa_Final",
-            y="Estado",
-            color="Tasa_Final",
+            x="Tasa_Mortalidad",
+            y="Province_State",
+            color="Tasa_Mortalidad",
             orientation="h",
             labels={
-                "Tasa_Final": "Tasa por cada 100 000 habitantes",
-                "Estado": "Estado"
+                "Tasa_Mortalidad": "Tasa por cada 100 000 habitantes",
+                "Province_State": "Estado"
             }
         )
+
         fig.update_layout(
             yaxis=dict(autorange="reversed"),
             coloraxis_showscale=False
         )
+
         st.plotly_chart(
             fig,
             use_container_width=True
@@ -406,180 +429,313 @@ covid_condados, fechas = obtener_series_condado(covid)
 # TAB PCA
 # =========================================================
 with tab_pca:
-    st.subheader("Diagnóstico de la reducción de dimensionalidad")
-    st.caption(
-        "Las variables se estandarizan (media 0, varianza 1) antes del PCA, "
-        "porque PCA es sensible a la escala de cada variable."
-    )
-
+    st.header("¿Cuáles son los principales patrones de comportamiento de la mortalidad por COVID-19 entre los condados de Estados Unidos?")
+    # ======================================================
+    # VARIANZA ACUMULADA
+    # ======================================================
+    st.subheader("Varianza acumulada")
     n90 = var.loc[var["Var_Acumulada"] >= 0.90, "Componente"]
     n90 = int(n90.iloc[0]) if len(n90) else None
-
     fig = px.line(
-        var, x="Componente", y="Var_Acumulada", markers=True,
-        title="Varianza acumulada"
+        var,
+        x="Componente",
+        y="Var_Acumulada",
+        markers=True,
+        title="Varianza acumulada explicada por las componentes principales"
     )
-    fig.add_hline(y=0.90, line_dash="dash", annotation_text="90 %")
-    if n90:
-        fig.add_vline(x=n90, line_dash="dot", annotation_text=f"{n90} componentes")
-    st.plotly_chart(fig, use_container_width=True, key="pca_var_acumulada")
+    fig.add_hline(
+        y=0.90,
+        line_dash="dash",
+        annotation_text="90 %"
+    )
+    if n90 is not None:
+        fig.add_vline(
+            x=n90,
+            line_dash="dot",
+            annotation_text=f"{n90} componentes"
+        )
+    fig.update_layout(
+        xaxis_title="Número de componente",
+        yaxis_title="Varianza acumulada"
+    )
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key="pca_varianza"
+    )
+    if n90 is not None:
 
-    if n90:
         st.info(
-            f"Se necesitan **{n90} componentes** para explicar el **90 %** de la varianza. "
-            "Esto indica que la información del conjunto de datos no puede resumirse en una "
-            "o dos dimensiones, por lo que el análisis se complementa después con **LLE**."
+            f"""
+Se requieren **{n90} componentes principales** para explicar aproximadamente el **90 %** de la variabilidad del conjunto de datos.
+Esto indica que la información está distribuida entre varias dimensiones y que una representación en únicamente dos componentes constituye una aproximación de la estructura original.
+"""
         )
 
-    # Solo trabajamos con las tres primeras componentes
-    pcs = [c for c in ["PC1", "PC2", "PC3"] if c in df.columns]
+    # ======================================================
+    # PROYECCIÓN PCA
+    # ======================================================
 
-    # ------------------------------------------------------------------
-    # 1) Proyección de los condados
-    # ------------------------------------------------------------------
     st.subheader("Proyección de los condados en el espacio PCA")
-    c1, c2, c3 = st.columns([1, 1, 1.2])
-    eje_x = c1.selectbox("Eje X", pcs, index=0)
-    eje_y = c2.selectbox("Eje Y", pcs, index=1 if len(pcs) > 1 else 0)
-    modo_color = c3.radio(
-        "Colorear por", ["Región", "Tasa de mortalidad"],
-        horizontal=True, key="pca_color"
+    pcs = [
+        c
+        for c in ["PC1", "PC2", "PC3"]
+        if c in df.columns
+    ]
+    c1, c2, c3 = st.columns([1,1,1.2])
+    eje_x = c1.selectbox(
+        "Componente eje X",
+        pcs,
+        index=0
     )
-
+    eje_y = c2.selectbox(
+        "Componente eje Y",
+        pcs,
+        index=1 if len(pcs)>1 else 0
+    )
+    modo_color = c3.radio(
+        "Colorear por",
+        ["Región","Tasa de mortalidad"],
+        horizontal=True,
+        key="pca_color"
+    )
     if modo_color == "Región" and "Region" in df.columns:
         fig = px.scatter(
-            df, x=eje_x, y=eje_y, color="Region",
-            color_discrete_map=COLOR_REGION, category_orders={"Region": ORDEN_REGION},
-            hover_data=["Condado", "Estado", "Tasa_Final"], opacity=0.7,
-            title=f"{eje_x} vs {eje_y}",
+            df,
+            x=eje_x,
+            y=eje_y,
+            color="Region",
+            color_discrete_map=COLOR_REGION,
+            category_orders={
+                "Region": ORDEN_REGION
+            },
+            hover_data=[
+                "Condado",
+                "Estado",
+                "Tasa_Final"
+            ],
+            opacity=0.75,
+            title=f"{eje_x} vs {eje_y}"
         )
     else:
         fig = px.scatter(
-            df, x=eje_x, y=eje_y, color="Tasa_Final",
+            df,
+            x=eje_x,
+            y=eje_y,
+            color="Tasa_Final",
             color_continuous_scale="Reds",
-            hover_data=["Condado", "Estado", "Tasa_Final"], opacity=0.7,
-            title=f"{eje_x} vs {eje_y}",
+            hover_data=[
+                "Condado",
+                "Estado",
+                "Tasa_Final"
+            ],
+            opacity=0.75,
+            title=f"{eje_x} vs {eje_y}"
         )
-
-    # Tres condados extremos, marcados con un diamante
-    sub = df[[eje_x, eje_y, "Condado", "Estado", "Tasa_Final"]].dropna()
-    extremos = pd.DataFrame()
+    # Líneas del origen
+    fig.add_hline(
+        y=0,
+        line_dash="dot",
+        line_color="gray"
+    )
+    fig.add_vline(
+        x=0,
+        line_dash="dot",
+        line_color="gray"
+    )
+    # ======================================================
+    # CONDADOS MÁS EXTREMOS
+    # ======================================================
+    sub = df[
+        [
+            eje_x,
+            eje_y,
+            "Condado",
+            "Estado",
+            "Tasa_Final"
+        ]
+    ].dropna()
     if len(sub):
-        cx0 = sub[eje_x] - sub[eje_x].mean()
-        cy0 = sub[eje_y] - sub[eje_y].mean()
-        sub = sub.assign(Distancia=np.sqrt(cx0 ** 2 + cy0 ** 2))
-        extremos = sub.nlargest(3, "Distancia")
-        fig.add_scatter(
-            x=extremos[eje_x], y=extremos[eje_y],
-            mode="markers+text", text=extremos["Condado"],
-            textposition="top center",
-            marker=dict(size=13, color="black", symbol="diamond",
-                        line=dict(width=1, color="white")),
-            name="Condados extremos", showlegend=False,
+        cx = sub[eje_x] - sub[eje_x].mean()
+        cy = sub[eje_y] - sub[eje_y].mean()
+        sub = sub.assign(
+            Distancia=np.sqrt(cx**2 + cy**2)
         )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Caption de varianza mejorado
-    vx, vy = varianza_pct(eje_x), varianza_pct(eje_y)
+        extremos = sub.nlargest(
+            3,
+            "Distancia"
+        )
+        fig.add_scatter(
+            x=extremos[eje_x],
+            y=extremos[eje_y],
+            mode="markers+text",
+            text=extremos["Condado"],
+            textposition="top center",
+            marker=dict(
+                symbol="diamond",
+                size=13,
+                color="black",
+                line=dict(
+                    color="white",
+                    width=1
+                )
+            ),
+            showlegend=False,
+            name="Condados extremos"
+        )
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+    # ======================================================
+    # INTERPRETACIÓN DE LA PROYECCIÓN
+    # ======================================================
+    vx = varianza_pct(eje_x)
+    vy = varianza_pct(eje_y)
     if vx is not None and vy is not None:
         total = vx + vy
         st.caption(
-            f"📊 **{eje_x}** explica el **{vx:.1f} %** de la varianza y **{eje_y}** el "
-            f"**{vy:.1f} %**: juntos resumen **{total:.1f} %** del total, dejando fuera "
-            f"**{100 - total:.1f} %**. Por eso esta vista 2D es una aproximación, no la "
-            f"imagen completa. Los ◆ marcan los condados más extremos, que más influyen "
-            f"en estas componentes."
+            f"""
+**{eje_x}** explica aproximadamente el **{vx:.1f}%** de la variabilidad total y **{eje_y}** el **{vy:.1f}%**.
+En conjunto ambas componentes representan **{total:.1f}%** de la información del conjunto de datos, mientras que el **{100-total:.1f}%** restante se encuentra distribuido en las demás componentes principales que no aparecen en esta visualización.
+Los marcadores ◆ representan los condados con mayor distancia respecto al centro del espacio PCA, es decir, aquellos con características más diferentes al resto del conjunto de datos.
+"""
         )
     else:
-        st.caption("Los ◆ marcan los condados más extremos.")
-
-
-    # ------------------------------------------------------------------
-    # 3) Loadings: PC1, PC2 y PC3 a lo largo del tiempo
-    # ------------------------------------------------------------------
-    st.subheader("¿Qué momento de la pandemia resume cada componente?")
+        st.caption(
+            "Los marcadores ◆ representan los condados más alejados del centro del espacio PCA."
+        )
+    # ======================================================
+    # LOADINGS DE LAS COMPONENTES
+    # ======================================================
+    st.subheader("Evolución temporal de los loadings")
+    st.markdown("""
+Los **loadings** representan la contribución de cada fecha a la construcción de una componente principal.
+Valores con mayor magnitud indican que ese periodo tuvo una mayor influencia sobre la componente correspondiente. Esto permite identificar qué etapas de la pandemia fueron las más representativas.
+""")
     load_t = loadings.copy()
-    load_t["Fecha"] = pd.to_datetime(load_t["Variable"], format="%m/%d/%y", errors="coerce")
+    load_t["Fecha"] = pd.to_datetime(
+        load_t["Variable"],
+        format="%m/%d/%y",
+        errors="coerce"
+    )
     load_t = load_t.sort_values("Fecha")
-    pcs_load = [c for c in ["PC1", "PC2", "PC3"] if c in loadings.columns]
+    pcs_load = [
+        c
+        for c in ["PC1","PC2","PC3"]
+        if c in load_t.columns
+    ]
     if pcs_load:
         largo = load_t.melt(
-            id_vars="Fecha", value_vars=pcs_load,
-            var_name="Componente", value_name="Loading"
+            id_vars="Fecha",
+            value_vars=pcs_load,
+            var_name="Componente",
+            value_name="Loading"
         )
         fig = px.line(
-            largo, x="Fecha", y="Loading", color="Componente",
+            largo,
+            x="Fecha",
+            y="Loading",
+            color="Componente",
             color_discrete_sequence=px.colors.qualitative.Set2,
-            title="Peso (loading) de cada componente a lo largo del tiempo",
+            title="Loadings de las tres primeras componentes"
         )
-        fig.add_hline(y=0, line_dash="dot", line_color="gray")
-
-        # Franjas que marcan las grandes olas de la pandemia
+        fig.add_hline(
+            y=0,
+            line_dash="dot",
+            line_color="gray"
+        )
         olas = [
-            ("2020-03-01", "2020-05-31", "gray",   0.10, "Primera ola",  "top left"),
-            ("2020-11-01", "2021-02-28", "red",    0.07, "Invierno 2020", "top right"),
-        ]
-        for x0, x1, color, op, etiqueta, pos in olas:
-            fig.add_vrect(
-                x0=x0, x1=x1, fillcolor=color, opacity=op, line_width=0,
-                annotation_text=etiqueta, annotation_position=pos,
-                annotation_font_size=11,
+            (
+                "2020-03-01",
+                "2020-05-31",
+                "gray",
+                0.10,
+                "Primera ola",
+                "top left"
+            ),
+            (
+                "2020-11-01",
+                "2021-02-28",
+                "red",
+                0.08,
+                "Invierno 2020",
+                "top right"
             )
-
-        fig.update_traces(line_width=2.5)
+        ]
+        for x0,x1,color,op,texto,pos in olas:
+            fig.add_vrect(
+                x0=x0,
+                x1=x1,
+                fillcolor=color,
+                opacity=op,
+                line_width=0,
+                annotation_text=texto,
+                annotation_position=pos
+            )
         fig.update_layout(
             hovermode="x unified",
-            legend_title_text="Componente",
             xaxis_title="Fecha",
-            yaxis_title="Loading (peso)",
-            margin=dict(t=60),
+            yaxis_title="Loading",
+            legend_title="Componente"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
 
+    # ======================================================
+    # INTERPRETACIÓN DE LAS COMPONENTES
+    # ======================================================
+    st.subheader("Relación entre las componentes principales y las variables originales")
+    vars_interp = [
+        v
+        for v in [
+            "Tasa_Final",
+            "Latitud",
+            "Longitud",
+            "Poblacion",
+            "Densidad"
 
-
-    # ------------------------------------------------------------------
-    # 4) Interpretación: correlación PC vs variables originales (heatmap)
-    # ------------------------------------------------------------------
-    st.subheader("¿Qué representa cada componente?")
-    vars_interp = [v for v in ["Tasa_Final", "Latitud", "Longitud", "Poblacion", "Densidad"]
-                   if v in df.columns]
+        ]
+        if v in df.columns
+    ]
     if vars_interp and pcs:
         filas = []
         for pc in pcs:
-            fila = {"Componente": pc}
+            fila = {
+                "Componente":pc
+            }
             for v in vars_interp:
                 fila[v] = df[pc].corr(df[v])
             filas.append(fila)
         corr_pc = pd.DataFrame(filas).set_index("Componente")
         fig = px.imshow(
-            corr_pc, text_auto=".1f", color_continuous_scale="RdBu",
-            zmin=-1, zmax=1,
-            title="Correlación entre componentes y variables originales",
+            corr_pc,
+            text_auto=".2f",
+            color_continuous_scale="RdBu",
+            zmin=-1,
+            zmax=1,
+            title="Correlación entre componentes principales y variables originales"
         )
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption(
-            "Cercano a **1**: relación positiva fuerte · cercano a **−1**: relación "
-            "negativa fuerte · cercano a **0**: poca relación. Una correlación alta con "
-            "Tasa_Final significa que la componente resume la magnitud de la mortalidad; "
-            "con Latitud/Longitud, que captura estructura geográfica."
+        st.plotly_chart(
+            fig,
+            use_container_width=True
         )
-
+    
 # =========================================================
 # TAB LLE
 # =========================================================
 with tab_lle:
 
-    st.subheader("Embedding no lineal (LLE)")
+    st.subheader("¿Existen grupos de condados que tuvieron una evolución similar de la mortalidad por COVID-19?")
 
     st.info(
-        "LLE (Locally Linear Embedding) reduce la dimensionalidad preservando la "
-        "vecindad local entre los condados. Si dos puntos aparecen cercanos, "
-        "significa que tuvieron trayectorias de mortalidad similares durante la "
-        "pandemia, aunque la relación entre ellas no sea lineal."
+        "Locally Linear Embedding (LLE). Los condados que aparecen cercanos en el embedding tienden a presentar trayectorias temporales de "
+        "mortalidad similares, incluso cuando esas relaciones no pueden describirse adecuadamente mediante métodos lineales como PCA."
     )
 
-    # Se utiliza el embedding con k = 15
+    # Embedding calculado con k = 15
     cx = "LLE1_k15"
     cy = "LLE2_k15"
 
@@ -589,57 +745,97 @@ with tab_lle:
         y=cy,
         color="Tasa_Final",
         color_continuous_scale="Viridis",
-        hover_data=[
-            "Condado",
-            "Estado",
-            "Tasa_Final"
-        ],
-        opacity=0.75,
-        title="LLE (k = 15)"
+        hover_data={
+            "Condado": True,
+            "Estado": True,
+            "Tasa_Final": ":.1f",
+            cx: False,
+            cy: False
+        },
+        opacity=0.80,
+        title="Embedding LLE (k = 15)"
+    )
+
+    fig.update_traces(
+        marker=dict(
+            size=6,
+            line=dict(width=0.3, color="black")
+        )
     )
 
     fig.update_layout(
-        xaxis_title="LLE 1",
-        yaxis_title="LLE 2",
-        coloraxis_colorbar_title="Tasa final"
+        xaxis_title="Dimensión LLE 1",
+        yaxis_title="Dimensión LLE 2",
+        coloraxis_colorbar_title="Tasa final<br>(por 100 mil hab.)"
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
-    st.caption(
-        "Cada punto representa un condado. Los puntos cercanos tuvieron trayectorias "
-        "de mortalidad similares durante la pandemia. Se observa un gradiente de "
-        "color, donde los condados con mayor tasa de mortalidad tienden a "
-        "concentrarse hacia un extremo del embedding, mientras que los de menor "
-        "mortalidad se ubican en la zona opuesta. Esto indica que LLE preserva "
-        "patrones locales relevantes de la evolución temporal de la mortalidad."
-    )
+    st.info("El análisis mediante LLE permitió identificar grupos de condados que presentaron una evolución similar de la mortalidad por COVID-19 durante la pandemia. Esto indica que, aunque los condados pertenecen a diferentes regiones geográficas, algunos compartieron patrones de comportamiento en la evolución de las defunciones. La proyección también muestra que varios de estos grupos presentan tasas finales de mortalidad semejantes, lo que facilita identificar patrones comunes que no serían evidentes al analizar únicamente los datos originales.")
+
 # =========================================================
 # TAB CORRELACIÓN
 # =========================================================
 with tab_corr:
-    st.subheader("Pearson vs Spearman")
-    st.markdown(
-        "Comparamos dos formas de medir la relación entre variables: **Pearson** "
-        "detecta relaciones lineales y **Spearman** relaciones monótonas, siendo "
-        "más robusta a valores atípicos. Donde ambas difieren, hay no-linealidad u "
-        "outliers."
-    )
 
-    # Matrices Pearson y Spearman lado a lado
-    vars_num = [v for v in ["Tasa_Final", "Latitud", "Longitud", "Poblacion", "Densidad"]
-                if v in df.columns and df[v].notna().any()]
-    cizq, cder = st.columns(2)
-    with cizq:
-        m = df[vars_num].corr(method="pearson")
-        fig = px.imshow(m, text_auto=".2f", color_continuous_scale="RdBu",
-                        zmin=-1, zmax=1, title="Matriz Pearson (lineal)")
+    st.subheader("¿La latitud, la longitud o la población explican la tasa de mortalidad?")
+
+    # -----------------------------------------------------
+    # Variables numéricas disponibles
+    # -----------------------------------------------------
+    vars_num = [
+        v for v in [
+            "Tasa_Final",
+            "Latitud",
+            "Longitud",
+            "Poblacion",
+            "Densidad"
+        ]
+        if v in df.columns and df[v].notna().any()
+    ]
+
+    # -----------------------------------------------------
+    # Matrices de correlación
+    # -----------------------------------------------------
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        pearson = df[vars_num].corr(method="pearson")
+
+        fig = px.imshow(
+            pearson,
+            text_auto=".2f",
+            color_continuous_scale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            title="Correlación de Pearson"
+        )
+
+        fig.update_layout(coloraxis_colorbar_title="r")
+
         st.plotly_chart(fig, use_container_width=True)
-    with cder:
-        m = df[vars_num].corr(method="spearman")
-        fig = px.imshow(m, text_auto=".2f", color_continuous_scale="RdBu",
-                        zmin=-1, zmax=1, title="Matriz Spearman (monótona)")
+
+    with col2:
+
+        spearman = df[vars_num].corr(method="spearman")
+
+        fig = px.imshow(
+            spearman,
+            text_auto=".2f",
+            color_continuous_scale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            title="Correlación de Spearman"
+        )
+
+        fig.update_layout(coloraxis_colorbar_title="ρ")
+
         st.plotly_chart(fig, use_container_width=True)
+        3
+    st.info("""
+ Las correlaciones obtenidas muestran que la latitud, la longitud y la población presentan una relación débil con la tasa final de mortalidad por COVID-19. Esto indica que estas variables, por sí solas, no explican la variabilidad observada entre los condados de Estados Unidos. Por lo tanto, es probable que otros factores, como las características demográficas, las condiciones de salud de la población, el acceso a los servicios médicos o factores socioeconómicos, hayan tenido una mayor influencia en la mortalidad y no fueron considerados en este análisis.
+    """)
 
 # =========================================================
 # TAB ESPACIO-TIEMPO
